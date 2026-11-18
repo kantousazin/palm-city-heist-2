@@ -94,8 +94,15 @@ export function buildCity(seed) {
           });
         }
       }
+      // Palms stand on the sidewalk frame around the block, never inside a
+      // building footprint (round-1 audit: lollipop trees grew out of roofs).
       for (let p = 0; p < 3; p++) {
-        palms.push({ x: x0 + random() * blockW, y: y0 + random() * blockH, sway: random() * 6.28 });
+        const edge = Math.floor(random() * 4);
+        const along = 20 + random() * (blockW - 40);
+        if (edge === 0) palms.push({ x: x0 + along, y: y0 - 8, sway: random() * 6.28 });
+        else if (edge === 1) palms.push({ x: x0 + along, y: y0 + blockH + 8, sway: random() * 6.28 });
+        else if (edge === 2) palms.push({ x: x0 - 8, y: y0 + along, sway: random() * 6.28 });
+        else palms.push({ x: x0 + blockW + 8, y: y0 + along, sway: random() * 6.28 });
       }
     }
   }
@@ -123,6 +130,23 @@ export function drawCity(ctx, city, camera, viewW, viewH, timeOfDay, elapsed) {
   ctx.fillStyle = night ? '#2b2f38' : '#454a55';
   for (const rx of ROAD_XS) ctx.fillRect(rx - ROAD_WIDTH / 2 - camera.x + viewW / 2, -camera.y + viewH / 2, ROAD_WIDTH, WORLD_HEIGHT);
   for (const ry of ROAD_YS) ctx.fillRect(-camera.x + viewW / 2, ry - ROAD_WIDTH / 2 - camera.y + viewH / 2, WORLD_WIDTH, ROAD_WIDTH);
+  // Road wear, one unified system (the "used city" pass): dark polished
+  // wheel tracks in every lane, patched asphalt and manholes at crossings.
+  ctx.strokeStyle = night ? 'rgba(0,0,0,0.16)' : 'rgba(20,24,32,0.13)';
+  ctx.lineWidth = 13;
+  ctx.beginPath();
+  for (const rx of ROAD_XS) for (const off of [-27, 27]) { ctx.moveTo(rx + off - camera.x + viewW / 2, -camera.y + viewH / 2); ctx.lineTo(rx + off - camera.x + viewW / 2, WORLD_HEIGHT - camera.y + viewH / 2); }
+  for (const ry of ROAD_YS) for (const off of [-27, 27]) { ctx.moveTo(-camera.x + viewW / 2, ry + off - camera.y + viewH / 2); ctx.lineTo(WORLD_WIDTH - camera.x + viewW / 2, ry + off - camera.y + viewH / 2); }
+  ctx.stroke();
+  for (const rx of ROAD_XS) for (const ry of ROAD_YS) {
+    const ix = rx - camera.x + viewW / 2, iy = ry - camera.y + viewH / 2;
+    if (ix < -90 || ix > viewW + 90 || iy < -90 || iy > viewH + 90) continue;
+    ctx.fillStyle = night ? 'rgba(0,0,0,0.2)' : 'rgba(20,24,32,0.12)';
+    ctx.beginPath(); ctx.ellipse(ix - 22, iy + 18, 26, 15, 0.4, 0, 6.29); ctx.fill();
+    ctx.strokeStyle = night ? 'rgba(255,255,255,0.14)' : 'rgba(20,24,32,0.28)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(ix + 30, iy - 26, 9, 0, 6.29); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ix - 44, iy - 40); ctx.lineTo(ix - 30, iy - 28); ctx.lineTo(ix - 36, iy - 14); ctx.stroke();
+  }
   // Lane dashes and sidewalks.
   ctx.strokeStyle = night ? '#8a8f5a' : '#f5d76e';
   ctx.lineWidth = 4; ctx.setLineDash([26, 22]);
@@ -130,6 +154,20 @@ export function drawCity(ctx, city, camera, viewW, viewH, timeOfDay, elapsed) {
   for (const rx of ROAD_XS) { ctx.moveTo(rx - camera.x + viewW / 2, -camera.y + viewH / 2); ctx.lineTo(rx - camera.x + viewW / 2, WORLD_HEIGHT - camera.y + viewH / 2); }
   for (const ry of ROAD_YS) { ctx.moveTo(-camera.x + viewW / 2, ry - camera.y + viewH / 2); ctx.lineTo(WORLD_WIDTH - camera.x + viewW / 2, ry - camera.y + viewH / 2); }
   ctx.stroke(); ctx.setLineDash([]);
+  // Crosswalks (zebra stripes, real-world 3m module) and stop lines at every
+  // intersection, so crossings read as crossings in a shrunk screenshot.
+  ctx.fillStyle = night ? 'rgba(230,236,240,0.5)' : 'rgba(240,244,246,0.78)';
+  for (const rx of ROAD_XS) for (const ry of ROAD_YS) {
+    const ix = rx - camera.x + viewW / 2, iy = ry - camera.y + viewH / 2;
+    if (ix < -90 || ix > viewW + 90 || iy < -90 || iy > viewH + 90) continue;
+    for (let s = 0; s < 5; s++) {
+      const off = -ROAD_WIDTH / 2 + 10 + s * 19;
+      ctx.fillRect(ix + off, iy - ROAD_WIDTH / 2 - 16, 11, 13); ctx.fillRect(ix + off, iy + ROAD_WIDTH / 2 + 3, 11, 13);
+      ctx.fillRect(ix - ROAD_WIDTH / 2 - 16, iy + off, 13, 11); ctx.fillRect(ix + ROAD_WIDTH / 2 + 3, iy + off, 13, 11);
+    }
+    ctx.fillRect(ix + 6, iy - ROAD_WIDTH / 2 - 26, ROAD_WIDTH / 2 - 10, 5);
+    ctx.fillRect(ix - ROAD_WIDTH / 2 + 4, iy + ROAD_WIDTH / 2 + 21, ROAD_WIDTH / 2 - 10, 5);
+  }
   ctx.fillStyle = night ? '#4a4f58' : '#cfd6cf';
   for (const rx of ROAD_XS) { ctx.fillRect(rx - ROAD_WIDTH / 2 - 12 - camera.x + viewW / 2, -camera.y + viewH / 2, 12, WORLD_HEIGHT); ctx.fillRect(rx + ROAD_WIDTH / 2 - camera.x + viewW / 2, -camera.y + viewH / 2, 12, WORLD_HEIGHT); }
   // Buildings with simple shadow and lit windows at night.
@@ -138,6 +176,15 @@ export function drawCity(ctx, city, camera, viewW, viewH, timeOfDay, elapsed) {
     const sx = b.x - camera.x + viewW / 2, sy = b.y - camera.y + viewH / 2;
     ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(sx + 7, sy + 9, b.w, b.h);
     ctx.fillStyle = b.color; ctx.fillRect(sx, sy, b.w, b.h);
+    // Parapet edge + rooftop furniture (AC unit / tank / skylight by hash):
+    // a roof is a place, not a flat colour slab.
+    ctx.strokeStyle = 'rgba(15,22,32,0.35)'; ctx.lineWidth = 3; ctx.strokeRect(sx + 2, sy + 2, b.w - 4, b.h - 4);
+    const hash = Math.abs(Math.sin(b.x * 12.9898 + b.y * 78.233)) * 43758.5453;
+    const kind = Math.floor((hash - Math.floor(hash)) * 3);
+    ctx.fillStyle = 'rgba(15,22,32,0.28)';
+    if (kind === 0) ctx.fillRect(sx + b.w * 0.58, sy + b.h * 0.5, 22, 16);
+    else if (kind === 1) { ctx.beginPath(); ctx.arc(sx + b.w * 0.68, sy + b.h * 0.58, 10, 0, 6.29); ctx.fill(); }
+    else { ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.fillRect(sx + b.w * 0.55, sy + b.h * 0.48, 26, 15); }
     ctx.fillStyle = b.wall; ctx.fillRect(sx + 5, sy + 5, b.w - 10, 10);
     ctx.fillStyle = night ? '#ffd94d' : 'rgba(255,255,255,0.35)';
     const win = 16;
@@ -156,24 +203,48 @@ export function drawCity(ctx, city, camera, viewW, viewH, timeOfDay, elapsed) {
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + Math.sin(elapsed + p.sway) * 3, sy - 16); ctx.stroke();
     ctx.beginPath(); ctx.arc(sx + Math.sin(elapsed + p.sway) * 3, sy - 19, 9, 0, 6.29); ctx.fill();
   }
-  // Landmark markers painted on the ground.
+  // Landmark markers: a painted ground ring plus a backed name plate, so the
+  // label never fights with GANG tags or rooftops for readability.
   ctx.font = 'bold 15px system-ui, sans-serif'; ctx.textAlign = 'center';
   for (const lm of city.landmarks) {
     const sx = lm.x - camera.x + viewW / 2, sy = lm.y - camera.y + viewH / 2;
     if (sx < -80 || sx > viewW + 80 || sy < -40 || sy > viewH + 40) continue;
+    ctx.strokeStyle = lm.color; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(sx, sy, 30, 0, 6.29); ctx.stroke();
     ctx.fillStyle = lm.color; ctx.beginPath(); ctx.arc(sx, sy - 64, 13, 0, 6.29); ctx.fill();
     ctx.fillStyle = '#14202e'; ctx.fillText('★', sx, sy - 59);
-    ctx.fillStyle = '#ffffff'; ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 3;
-    ctx.strokeText(lm.name, sx, sy - 84); ctx.fillText(lm.name, sx, sy - 84);
+    const labelW = ctx.measureText(lm.name).width + 18;
+    ctx.fillStyle = 'rgba(10,18,28,0.78)'; ctx.beginPath(); ctx.roundRect(sx - labelW / 2, sy - 104, labelW, 24, 6); ctx.fill();
+    ctx.fillStyle = '#ffffff'; ctx.fillText(lm.name, sx, sy - 87);
   }
-  // Traffic lights at intersections.
+  // Traffic lights: a real pole + 3-lamp housing on the far corner. NS and EW
+  // faces show opposite colours from the same city rhythm (8s cycle).
   const phase = trafficLightPhase(elapsed);
   for (const rx of ROAD_XS) for (const ry of ROAD_YS) {
     const sx = rx - camera.x + viewW / 2, sy = ry - camera.y + viewH / 2;
     if (sx < -30 || sx > viewW + 30 || sy < -30 || sy > viewH + 30) continue;
-    ctx.fillStyle = '#1c2027'; ctx.fillRect(sx + ROAD_WIDTH / 2 - 4, sy - ROAD_WIDTH / 2 - 4, 14, 14);
-    ctx.fillStyle = phase.startsWith('ns') ? '#3dff6e' : '#ff4040';
-    ctx.beginPath(); ctx.arc(sx + ROAD_WIDTH / 2 + 3, sy - ROAD_WIDTH / 2 + 3, 5, 0, 6.29); ctx.fill();
+    const hx = sx + ROAD_WIDTH / 2 + 8, hy = sy - ROAD_WIDTH / 2 - 26;
+    ctx.fillStyle = '#14181f'; ctx.fillRect(hx + 5, hy + 30, 4, 22);
+    ctx.beginPath(); ctx.roundRect(hx, hy, 14, 32, 4); ctx.fill();
+    const nsGreen = phase.startsWith('ns');
+    const nsYellow = phase === 'ns-yellow';
+    const lamp = (yy, on, color) => { ctx.fillStyle = on ? color : 'rgba(255,255,255,0.16)'; ctx.beginPath(); ctx.arc(hx + 7, yy, 4.4, 0, 6.29); ctx.fill(); };
+    lamp(hy + 7, !nsGreen, '#ff4040');
+    lamp(hy + 16, nsYellow, '#ffd23d');
+    lamp(hy + 25, nsGreen && !nsYellow, '#3dff6e');
+    if (night) { ctx.save(); ctx.globalAlpha = 0.16; ctx.fillStyle = nsGreen && !nsYellow ? '#3dff6e' : '#ff4040'; ctx.beginPath(); ctx.arc(hx + 7, hy + 16, 17, 0, 6.29); ctx.fill(); ctx.restore(); }
+  }
+  // Streetlight pools at night: warm discs on the road grid, dark elsewhere.
+  if (night) {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    for (const rx of ROAD_XS) for (let wy = 120; wy < WORLD_HEIGHT; wy += 300) {
+      const sx = rx - camera.x + viewW / 2, sy = wy - camera.y + viewH / 2;
+      if (sx < -90 || sx > viewW + 90 || sy < -90 || sy > viewH + 90) continue;
+      const grad = ctx.createRadialGradient(sx, sy, 4, sx, sy, 74);
+      grad.addColorStop(0, 'rgba(255,190,90,0.20)'); grad.addColorStop(1, 'rgba(255,190,90,0)');
+      ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(sx, sy, 74, 0, 6.29); ctx.fill();
+    }
+    ctx.restore();
   }
   if (night) { ctx.fillStyle = 'rgba(8,12,40,0.34)'; ctx.fillRect(0, 0, viewW, viewH); }
   else if (sunset) { ctx.fillStyle = 'rgba(255,120,40,0.13)'; ctx.fillRect(0, 0, viewW, viewH); }

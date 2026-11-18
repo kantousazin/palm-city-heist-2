@@ -60,6 +60,6 @@ export function updateTraffic(cars, dt, elapsed, playerPos, audio, particles) {
   }
 }
 
-export function drawTraffic(ctx, cars, camera, viewW, viewH) {
-  for (const car of cars) drawVehicle(ctx, car, camera, viewW, viewH);
+export function drawTraffic(ctx, cars, camera, viewW, viewH, night = false) {
+  for (const car of cars) drawVehicle(ctx, car, camera, viewW, viewH, night);
 }

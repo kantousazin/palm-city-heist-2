@@ -1,16 +1,16 @@
 // On-foot combat: mouse-aimed shooting with visible tracers, hostile gang members who
 // shoot back, and health on both sides. Gang members are drawn at pedestrian scale x1.25.
-import { spawnMuzzleFlash } from './particles.js';
+import { spawnMuzzleFlash, spawnHitMark, spawnFloatText } from './particles.js';
 
 export function createGangMembers() {
   const spots = [
     [2860, 1960], [2985, 2085], [2905, 2140], [2380, 760], [2560, 590], [820, 2140],
   ];
-  return spots.map(([x, y], i) => ({ x, y, health: 60, facing: Math.PI, shootTimer: 1 + i * 0.4, alive: true, color: '#8e44ad', walkPhase: i }));
+  return spots.map(([x, y], i) => ({ x, y, health: 60, facing: Math.PI, shootTimer: 1 + i * 0.4, alive: true, color: '#8e44ad', walkPhase: i, hitFlash: 0, knockX: 0, knockY: 0 }));
 }
 
 export function createCombatState() {
-  return { bullets: [], enemyBullets: [], fireCooldown: 0, shotsFired: 0 };
+  return { bullets: [], enemyBullets: [], fireCooldown: 0, shotsFired: 0, hitstopRequest: 0, hitsLanded: 0 };
 }
 
 export function playerShoot(combat, player, audio, particles) {
@@ -41,7 +41,15 @@ export function updateCombat(combat, dt, gangs, player, particles, onPlayerHit, 
       } else {
         for (const g of gangs) {
           if (g.alive && Math.hypot(b.x - g.x, b.y - g.y) < 16) {
-            b.life = 0; g.health -= 34;
+            b.life = 0; g.health -= 34; combat.hitsLanded++;
+            // Impact feel: hit mark at the overlap point, a white flash, a
+            // small knockback along the bullet, and hitstop scaled by result
+            // (Sakurai specs #047: stop length follows the blow's weight).
+            spawnHitMark(particles, b.x, b.y, g.health <= 0);
+            spawnFloatText(particles, g.x, g.y - 26, g.health <= 0 ? 'DOWN +$40' : '-34', g.health <= 0 ? '#ffd94d' : '#ffffff');
+            g.hitFlash = 0.16;
+            const kb = 130; g.knockX = (b.vx / 880) * kb; g.knockY = (b.vy / 880) * kb;
+            combat.hitstopRequest = Math.max(combat.hitstopRequest, g.health <= 0 ? 0.11 : 0.05);
             if (g.health <= 0) { g.alive = false; onGangDown(g); }
             break;
           }
@@ -55,6 +63,8 @@ export function updateCombat(combat, dt, gangs, player, particles, onPlayerHit, 
   // Gangs engage when the player is close or has fired nearby.
   for (const g of gangs) {
     if (!g.alive) continue;
+    g.hitFlash = Math.max(0, (g.hitFlash || 0) - dt);
+    if (g.knockX || g.knockY) { g.x += g.knockX * dt; g.y += g.knockY * dt; g.knockX *= 0.82; g.knockY *= 0.82; if (Math.abs(g.knockX) < 4) { g.knockX = 0; g.knockY = 0; } }
     const dist = Math.hypot(g.x - player.x, g.y - player.y);
     g.facing = Math.atan2(player.y - g.y, player.x - g.x);
     if (dist < 300) {
@@ -77,7 +87,7 @@ export function drawCombat(ctx, combat, gangs, camera, viewW, viewH) {
     if (sx < -30 || sx > viewW + 30 || sy < -30 || sy > viewH + 30) continue;
     ctx.save(); ctx.translate(sx, sy); ctx.scale(1.25, 1.25);
     ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(0, 9, 8, 3.2, 0, 0, 6.29); ctx.fill();
-    ctx.fillStyle = g.color; ctx.beginPath(); ctx.roundRect(-6, -6, 12, 10, 4); ctx.fill();
+    ctx.fillStyle = g.hitFlash > 0 ? '#ffffff' : g.color; ctx.beginPath(); ctx.roundRect(-6, -6, 12, 10, 4); ctx.fill();
     ctx.fillStyle = '#e8b98d'; ctx.beginPath(); ctx.arc(0, -10, 5.2, 0, 6.29); ctx.fill();
     ctx.fillStyle = '#101018'; ctx.beginPath(); ctx.arc(0, -12.6, 5.2, Math.PI, 6.29); ctx.fill();
     ctx.strokeStyle = '#22262e'; ctx.lineWidth = 3.4;

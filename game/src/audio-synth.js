@@ -45,6 +45,12 @@ export function createAudioSynth() {
     playMissionCompleteJingle() { [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.16, 'triangle', 0.16, null, i * 0.11)); },
     playBustedSting() { [392, 330, 262, 196].forEach((f, i) => tone(f, 0.2, 'triangle', 0.15, null, i * 0.13)); },
     playSirenStep(step) { tone(step % 2 ? 660 : 880, 0.16, 'sine', 0.035); },
+    // Impact and feedback sounds, priority-ordered (Sakurai sound #10):
+    // hits outrank ambience, so these stay short, attack-heavy, low reverb.
+    playHit(down = false) { noiseBurst(0.06, 0.16); tone(down ? 220 : 300, 0.07, 'triangle', 0.14, 90); if (down) tone(523, 0.12, 'triangle', 0.1, null, 0.05); },
+    playNearMiss() { noiseBurst(0.16, 0.1); tone(900, 0.14, 'sine', 0.05, 1500); },
+    playFootstep(step) { noiseBurst(0.03, 0.035); tone(step % 2 ? 95 : 82, 0.03, 'sine', 0.03); },
+    playDrift(active) { if (active) noiseBurst(0.09, 0.045); },
     setEngineLevel(level, driving) {
       const ac = ensureContext(); if (!ac) return;
       if (!engineOscillator) {

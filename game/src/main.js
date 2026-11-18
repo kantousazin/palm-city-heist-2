@@ -6,7 +6,7 @@
 // or on a straight so collisions and sparks never cover the hero.
 import { buildCity, drawCity, buildingAt, WORLD_WIDTH, WORLD_HEIGHT } from './world-city.js';
 import { createCamera, updateCamera, addCameraShake } from './camera.js';
-import { createParticleSystem, spawnSparks, spawnSmoke, spawnConfetti, updateParticles, drawParticles } from './particles.js';
+import { createParticleSystem, spawnSparks, spawnSmoke, spawnConfetti, updateParticles, drawParticles, addSkidMark, stageSkidTrail, drawSkidMarks, drawFloatTexts, spawnFloatText, spawnHitMark } from './particles.js';
 import { createAudioSynth } from './audio-synth.js';
 import { saveGameState, loadGameState, hasSavedGame } from './save-game.js';
 import { INTRO_DIALOG, ENDING_DIALOG, BUSTED_TEXT, WASTED_TEXT } from './story.js';
@@ -41,7 +41,7 @@ const gangs = createGangMembers();
 const combat = createCombatState();
 const wanted = createWantedSystem();
 const missions = createMissionState();
-window.__palmCity = { player, missions, wanted, parkedCars, camera };
+window.__palmCity = { player, missions, wanted, parkedCars, camera, combat, particles, get styleMoney() { return styleMoney; }, get hitstop() { return hitstop; } };
 
 let screen = 'title';
 let elapsed = 0;
@@ -49,6 +49,7 @@ let timeOfDay = 0.34; // fraction of a 24h cycle; 0.34 = bright morning
 let mouseX = VIEW_W / 2, mouseY = VIEW_H / 2, mouseDown = false;
 let messageFlash = '', messageTimer = 0;
 let arrestTimer = 0, crashCooldown = 0, saveTimer = 0, dialogWasIntro = true;
+let hitstop = 0, styleMoney = 0, nearMissCooldown = 0, footstepTimer = 0, driftSoundTimer = 0, lastHitsLanded = 0, lastSkidX = 0, lastSkidY = 0;
 const keys = {};
 
 function playerPosition() {
@@ -129,6 +130,7 @@ function handleCarCollisions(dt) {
     spawnSparks(particles, car.x, car.y, 12);
     if (crashCooldown <= 0) {
       crashCooldown = 0.7; addCrime(wanted, 5, elapsed); audio.playCrash(); addCameraShake(camera, 6);
+      hitstop = Math.max(hitstop, 0.07); // a crash is a hit too (Sakurai #003)
       car.health -= 8;
     }
     car.x = prevX; car.y = prevY; car.speed *= -0.28;
@@ -152,9 +154,29 @@ function update(dt) {
       player.x = car.x; player.y = car.y;
       if (Math.abs(car.speed) > 240 && Math.random() < dt * 2) spawnSmoke(particles, car.x, car.y, 1);
       audio.setEngineLevel(car.speed / 430, true);
+      // Drift leaves tyre marks and pays style money: risk (sliding at speed
+      // near traffic) earns the reward, in the same place (Sakurai #006).
+      if (car.isDrifting) {
+        if (Math.hypot(car.x - lastSkidX, car.y - lastSkidY) > 13) { addSkidMark(particles, car.x, car.y, car.angle + car.driftAngle); lastSkidX = car.x; lastSkidY = car.y; }
+        driftSoundTimer -= dt; if (driftSoundTimer <= 0) { driftSoundTimer = 0.12; audio.playDrift(true); }
+        if (Math.random() < dt * 1.4) { styleMoney += 1; player.money += 1; }
+      }
+      nearMissCooldown = Math.max(0, nearMissCooldown - dt);
+      if (nearMissCooldown <= 0 && Math.abs(car.speed) > 250) {
+        for (const other of trafficCars) {
+          const d = Math.hypot(other.x - car.x, other.y - car.y);
+          if (d > 34 && d < 62) {
+            nearMissCooldown = 1.6; styleMoney += 10; player.money += 10;
+            spawnFloatText(particles, car.x, car.y - 34, 'NEAR MISS +$10', '#7fd0ff');
+            audio.playNearMiss();
+            break;
+          }
+        }
+      }
     } else {
       updatePlayerOnFoot(player, { left: keys.KeyA || keys.ArrowLeft, right: keys.KeyD || keys.ArrowRight, up: keys.KeyW || keys.ArrowUp, down: keys.KeyS || keys.ArrowDown }, dt, buildingHit);
       audio.setEngineLevel(0, false);
+      if (Math.hypot(player.vx, player.vy) > 40) { footstepTimer -= dt; if (footstepTimer <= 0) { footstepTimer = 0.27; audio.playFootstep(Math.round(player.walkPhase)); } }
       if (mouseDown) {
         if (playerShoot(combat, player, audio, particles)) { addCrime(wanted, 7, elapsed); startlePedestrians(pedestrians, player.x, player.y, 210); }
       }
@@ -175,6 +197,9 @@ function update(dt) {
   updateCombat(combat, dt, gangs, player, particles,
     (amount) => { if (damagePlayer(player, amount)) respawnAtHospital(WASTED_TEXT); },
     (gang) => { player.money += 40; addCrime(wanted, 9, elapsed); spawnConfetti(particles, gang.x, gang.y, 14); });
+  // Hitstop: freeze the world, not the effects, so the blow lands in the eye.
+  if (combat.hitstopRequest > 0) { hitstop = Math.max(hitstop, combat.hitstopRequest); combat.hitstopRequest = 0; }
+  if (combat.hitsLanded !== lastHitsLanded) { audio.playHit(combat.hitsLanded > lastHitsLanded && gangs.some((g) => !g.alive)); lastHitsLanded = combat.hitsLanded; }
 
   // Arrest: standing still next to police with stars on you ends the run.
   const nearPolice = wanted.policeCars.some((c) => Math.hypot(c.x - pos.x, c.y - pos.y) < 54);
@@ -205,7 +230,20 @@ function update(dt) {
 
 function drawObjectiveBeacon() {
   const mission = currentMission(missions); if (!mission) return;
-  const sx = mission.targetX - camera.x + VIEW_W / 2, sy = mission.targetY - camera.y + VIEW_H / 2;
+  let sx = mission.targetX - camera.x + VIEW_W / 2, sy = mission.targetY - camera.y + VIEW_H / 2;
+  const offscreen = sx < 30 || sx > VIEW_W - 30 || sy < 30 || sy > VIEW_H - 30;
+  if (offscreen) {
+    // Edge arrow: the goal is always readable without staring at the minimap.
+    sx = Math.max(36, Math.min(VIEW_W - 36, sx)); sy = Math.max(96, Math.min(VIEW_H - 36, sy));
+    const ang = Math.atan2(mission.targetY - (camera.y + (sy - VIEW_H / 2)), mission.targetX - (camera.x + (sx - VIEW_W / 2)));
+    ctx.save(); ctx.translate(sx, sy); ctx.rotate(ang);
+    ctx.fillStyle = '#ffd94d'; ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(-12, -13); ctx.lineTo(-12, 13); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 14px system-ui'; ctx.textAlign = 'center';
+    const dist = Math.round(Math.hypot(mission.targetX - playerPosition().x, mission.targetY - playerPosition().y) / 10);
+    ctx.fillText(dist + 'm', sx, sy > VIEW_H - 70 ? sy - 26 : sy + 34);
+    return;
+  }
   const pulse = 26 + Math.sin(elapsed * 4) * 6;
   ctx.strokeStyle = '#ffd94d'; ctx.lineWidth = 4;
   ctx.beginPath(); ctx.arc(sx, sy, pulse, 0, 6.29); ctx.stroke();
@@ -216,20 +254,26 @@ function drawObjectiveBeacon() {
 function render() {
   ctx.save();
   ctx.translate(camera.shakeX, camera.shakeY);
+  const night = timeOfDay > 0.78 || timeOfDay < 0.06;
   drawCity(ctx, city, camera, VIEW_W, VIEW_H, timeOfDay, elapsed);
+  drawSkidMarks(ctx, particles, camera, VIEW_W, VIEW_H);
   drawObjectiveBeacon();
-  for (const car of parkedCars) if (!car.taken) drawVehicle(ctx, car, camera, VIEW_W, VIEW_H);
-  drawTraffic(ctx, trafficCars, camera, VIEW_W, VIEW_H);
-  drawPolice(ctx, wanted, camera, VIEW_W, VIEW_H);
+  for (const car of parkedCars) if (!car.taken) drawVehicle(ctx, car, camera, VIEW_W, VIEW_H, night);
+  drawTraffic(ctx, trafficCars, camera, VIEW_W, VIEW_H, night);
+  drawPolice(ctx, wanted, camera, VIEW_W, VIEW_H, night);
   for (const ped of pedestrians) drawPedestrian(ctx, ped, camera, VIEW_W, VIEW_H);
   drawCombat(ctx, combat, gangs, camera, VIEW_W, VIEW_H);
-  if (player.inCar) drawVehicle(ctx, player.inCar, camera, VIEW_W, VIEW_H);
+  if (player.inCar) drawVehicle(ctx, player.inCar, camera, VIEW_W, VIEW_H, night);
   else drawPlayerPerson(ctx, player, camera, VIEW_W, VIEW_H);
   drawParticles(ctx, particles, camera, VIEW_W, VIEW_H);
+  drawFloatTexts(ctx, particles, camera, VIEW_W, VIEW_H);
   ctx.restore();
 
   const nearCar = !player.inCar ? findNearestParkedCar(parkedCars.filter((c) => !c.taken), player.x, player.y) : null;
-  if (screen === 'play') drawHUD(ctx, { player, wanted, missions, elapsed, traffic: trafficCars, parked: parkedCars }, VIEW_W, VIEW_H);
+  if (screen === 'play') drawHUD(ctx, { player, wanted, missions, elapsed, traffic: trafficCars, parked: parkedCars, nearCar, styleMoney }, VIEW_W, VIEW_H);
+  // Celebration confetti belongs IN FRONT of the mission-complete panel:
+  // the reward moment must not hide behind its own banner (round-1 audit).
+  if (missions.completeFlash > 0) { ctx.save(); ctx.translate(camera.shakeX, camera.shakeY); drawParticles(ctx, particles, camera, VIEW_W, VIEW_H); ctx.restore(); }
   if (messageTimer > 0) {
     ctx.fillStyle = 'rgba(10,18,28,0.85)'; ctx.beginPath(); ctx.roundRect(VIEW_W / 2 - 360, 96, 720, 46, 9); ctx.fill();
     ctx.fillStyle = '#ffffff'; ctx.font = 'bold 20px system-ui'; ctx.textAlign = 'center'; ctx.fillText(messageFlash, VIEW_W / 2, 126);
@@ -298,22 +342,25 @@ function stageShotScene(name) {
   } else if (name === 'chase') {
     timeOfDay = 0.46; missions.index = 3; setWantedStars(wanted, 4); // frozen at exactly 4 stars
     putPlayerInCar(2230, 1098, 0); // straight stretch east of the crossing, police in column behind
+    player.inCar.speed = 330; player.inCar.steerVisual = 0.4; // speedometer and turned wheels read as motion in a still
     wanted.policeCars = [1960, 2055, 2150].map((x) => ({ x, y: 1098, angle: 0, speed: 220, color: '#ffffff', kind: 'police', health: 100, driftAngle: 0, steerVisual: 0 }));
     wanted.policeCars.push({ x: 2010, y: 1172, angle: 0, speed: 220, color: '#ffffff', kind: 'police', health: 100, driftAngle: 0, steerVisual: 0 });
+    stageSkidTrail(particles, 2230, 1098, 0, 170); // the chase already happened: tyre marks prove speed
     gangs.forEach((g) => { g.x = 600; g.y = 2400; }); // keep gang labels out of this frame
     trafficCars = trafficCars.slice(0, 5); // light traffic: no pile-up chaos
     trafficCars.forEach((c, i) => { c.axis = 'x'; c.laneRoad = 1575; c.y = 1548; c.x = 1700 + i * 300; c.angle = 0; c.dir = 1; });
   } else if (name === 'combat') {
     timeOfDay = 0.58; missions.index = 4; setWantedStars(wanted, 2);
-    player.x = 2800; player.y = 1990; camera.x = 2800; camera.y = 1990;
-    gangs[0].x = 2885; gangs[0].y = 1950; gangs[1].x = 2915; gangs[1].y = 2045; gangs[2].x = 2860; gangs[2].y = 2085;
+    player.x = 2700; player.y = 1990; camera.x = 2700; camera.y = 1990; // west of the warehouse so GANG tags clear its name plate
+    gangs[0].x = 2795; gangs[0].y = 1945; gangs[1].x = 2830; gangs[1].y = 2045; gangs[2].x = 2765; gangs[2].y = 2090;
     gangs.slice(3).forEach((g) => { g.x = 500; g.y = 500; });
     player.aimAngle = Math.atan2(gangs[0].y - player.y, gangs[0].x - player.x);
     gangs.forEach((g) => { g.facing = Math.atan2(player.y - g.y, player.x - g.x); });
     stageTracerShots(combat, player.x, player.y, player.aimAngle, 4); // bullets already mid-flight
-    combat.enemyBullets.push({ x: 2870, y: 1958, vx: -620, vy: 30, life: 0.5, tracer: 24 });
-    pedestrians[2].x = 2690; pedestrians[2].y = 1905; pedestrians[2].panic = 3;
-    pedestrians[3].x = 2920; pedestrians[3].y = 1895; pedestrians[3].panic = 3;
+    gangs[0].hitFlash = 0.16; gangs[0].health = 26; // mid-hit: flash sells the impact (mark re-spawns per paint below)
+    combat.enemyBullets.push({ x: 2790, y: 1958, vx: -620, vy: 30, life: 0.5, tracer: 24 });
+    pedestrians[2].x = 2600; pedestrians[2].y = 1905; pedestrians[2].panic = 3;
+    pedestrians[3].x = 2845; pedestrians[3].y = 1895; pedestrians[3].panic = 3;
   } else if (name === 'night') {
     timeOfDay = 0.93; missions.index = 5; setWantedStars(wanted, 1);
     player.x = 2475; player.y = 880; camera.x = 2475; camera.y = 880; // south of the neon intersection, clear of the banner
@@ -332,6 +379,7 @@ if (shotName) {
   stageShotScene(shotName);
   let painted = 0;
   const paintShot = () => {
+    if (shotName === 'combat') spawnHitMark(particles, gangs[0].x - 8, gangs[0].y, false); // fresh hit mark on the capture frame
     if (shotName === 'night' && painted === 0) {
       spawnConfetti(particles, player.x, player.y + 16, 110); // burst at the hero's feet, below the banner
       for (let step = 0; step < 6; step++) updateParticles(particles, 0.05); // pre-spread so it reads at capture size
@@ -349,7 +397,10 @@ if (shotName) {
   let last = performance.now();
   const frame = (now) => {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    if (screen === 'play') update(dt); else { elapsed += dt; updateParticles(particles, dt); const pos = playerPosition(); updateCamera(camera, pos.x, pos.y, 0, 0, dt, VIEW_W, VIEW_H); }
+    if (hitstop > 0) {
+      // Hitstop: world frozen, particles and hit marks keep moving (#130).
+      hitstop = Math.max(0, hitstop - dt); updateParticles(particles, dt * 0.4);
+    } else if (screen === 'play') update(dt); else { elapsed += dt; updateParticles(particles, dt); const pos = playerPosition(); updateCamera(camera, pos.x, pos.y, 0, 0, dt, VIEW_W, VIEW_H); }
     render();
     requestAnimationFrame(frame);
   };

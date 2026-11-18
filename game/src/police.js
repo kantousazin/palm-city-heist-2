@@ -41,8 +41,9 @@ export function updatePolice(wanted, dt, elapsed, player, audio) {
   const nearest = wanted.policeCars.reduce((m, c) => Math.min(m, Math.hypot(c.x - player.x, c.y - player.y)), 9999);
   if (!wanted.frozen && wanted.stars > 0 && elapsed - wanted.lastCrimeAt > 7 && nearest > 430) {
     wanted.escapeTimer += dt;
+    wanted.cooling = Math.min(1, wanted.escapeTimer / 5);
     if (wanted.escapeTimer > 5) { wanted.crime = Math.max(0, wanted.crime - 17); wanted.escapeTimer = 0; wanted.stars = wantedStarsForCrime(wanted.crime); }
-  } else wanted.escapeTimer = 0;
+  } else { wanted.escapeTimer = 0; wanted.cooling = 0; }
 
   const desired = wanted.stars === 0 ? 0 : Math.min(5, wanted.stars + (wanted.stars >= 3 ? 1 : 0));
   while (wanted.policeCars.length < desired) {
@@ -75,6 +76,6 @@ export function updatePolice(wanted, dt, elapsed, player, audio) {
   return rammedPlayer;
 }
 
-export function drawPolice(ctx, wanted, camera, viewW, viewH) {
-  for (const car of wanted.policeCars) drawVehicle(ctx, car, camera, viewW, viewH);
+export function drawPolice(ctx, wanted, camera, viewW, viewH, night = false) {
+  for (const car of wanted.policeCars) drawVehicle(ctx, car, camera, viewW, viewH, night);
 }

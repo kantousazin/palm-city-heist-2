@@ -38,6 +38,15 @@ synthesised live through WebAudio.
 - **Polish**: hand-made particles (collision sparks, tyre smoke, muzzle flashes,
   mission confetti), a smooth look-ahead camera, and synthesised sirens, horns,
   gunshots and jingles.
+- **Round-3 improvement pass**: hitstop on bullet hits and crashes with hit
+  marks, damage numbers and knockback; drifting leaves fading tyre marks and
+  pays style money, as do near misses at speed (risk earns the reward, in the
+  same place); a speedometer, a cooling-down meter while you hide from the
+  police, and an edge arrow with distance toward the objective; a lived-in
+  city — crosswalks and stop lines, road wear and manholes, rooftop furniture,
+  palms on the sidewalks (never in buildings), three-lamp traffic lights,
+  streetlight pools and headlight cones at night; brake lights, turning front
+  wheels, footsteps, drift screech and near-miss whooshes in the synth.
 
 ## Controls
 

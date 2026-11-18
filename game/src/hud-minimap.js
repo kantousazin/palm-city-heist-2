@@ -48,8 +48,9 @@ export function drawMinimap(ctx, state, x, y, w, h) {
   dot(px, py, '#ffffff', 4.4);
   ctx.strokeStyle = '#ffd94d'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(sx(px), sy(py), 6.4, 0, 6.29); ctx.stroke();
   ctx.restore();
+  ctx.fillStyle = 'rgba(10,18,28,0.88)'; ctx.beginPath(); ctx.roundRect(x, y + h + 4, w, 22, 6); ctx.fill();
   ctx.fillStyle = '#ffffff'; ctx.font = 'bold 13px system-ui'; ctx.textAlign = 'left';
-  ctx.fillText('PALMERA CITY — ' + districtAt(px, py).toUpperCase(), x + 8, y + h + 18);
+  ctx.fillText('PALMERA CITY — ' + districtAt(px, py).toUpperCase(), x + 8, y + h + 20);
 }
 
 export function drawHUD(ctx, state, viewW, viewH) {
@@ -66,9 +67,29 @@ export function drawHUD(ctx, state, viewW, viewH) {
   ctx.fillStyle = '#ffffff'; ctx.font = '16px system-ui';
   ctx.fillText(player.inCar ? 'DRIVING — F/E exit' : 'ON FOOT — E enter car', 118, 100);
   // Wanted stars sit under the minimap: clear of the mission banner and the map itself.
-  ctx.fillStyle = 'rgba(10,18,28,0.72)'; ctx.beginPath(); ctx.roundRect(viewW - 256, 284, 240, 50, 8); ctx.fill();
+  ctx.fillStyle = 'rgba(10,18,28,0.88)'; ctx.beginPath(); ctx.roundRect(viewW - 256, 284, 240, 50, 8); ctx.fill();
   ctx.font = 'bold 12px system-ui'; ctx.fillStyle = '#ffffff'; ctx.fillText('WANTED', viewW - 246, 322);
   drawWantedStars(ctx, wanted.stars, viewW - 176, 324, elapsed);
+  // Cooling-down meter: when the player is out of sight and clean, show how
+  // close the heat is to dropping — hiding becomes a readable mini-game.
+  if (wanted.stars > 0 && wanted.cooling) {
+    ctx.fillStyle = 'rgba(10,18,28,0.88)'; ctx.beginPath(); ctx.roundRect(viewW - 256, 340, 240, 30, 8); ctx.fill();
+    ctx.fillStyle = '#7fd0ff'; ctx.font = 'bold 12px system-ui'; ctx.fillText('COOLING DOWN', viewW - 246, 360);
+    ctx.fillStyle = '#3a4356'; ctx.fillRect(viewW - 130, 350, 104, 9);
+    ctx.fillStyle = '#7fd0ff'; ctx.fillRect(viewW - 130, 350, 104 * Math.min(1, wanted.cooling), 9);
+  }
+  // Speedometer + style score while driving (bottom-right, thumb-free zone).
+  if (player.inCar) {
+    const kmh = Math.round(Math.abs(player.inCar.speed) * 0.36);
+    ctx.fillStyle = 'rgba(10,18,28,0.88)'; ctx.beginPath(); ctx.roundRect(viewW - 196, viewH - 92, 180, 76, 10); ctx.fill();
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 34px system-ui'; ctx.textAlign = 'right';
+    ctx.fillText(String(kmh), viewW - 66, viewH - 52);
+    ctx.font = 'bold 13px system-ui'; ctx.fillStyle = '#9fb4cc'; ctx.fillText('km/h', viewW - 26, viewH - 52);
+    ctx.font = 'bold 14px system-ui'; ctx.fillStyle = player.inCar.isDrifting ? '#ffd94d' : '#9fb4cc'; ctx.textAlign = 'left';
+    ctx.fillText(player.inCar.isDrifting ? 'DRIFTING!' : 'STYLE', viewW - 182, viewH - 26);
+    ctx.fillStyle = '#ffd94d'; ctx.textAlign = 'right'; ctx.fillText('$' + (state.styleMoney || 0) + ' style', viewW - 26, viewH - 26);
+    ctx.textAlign = 'left';
+  }
   // Mission banner across the top centre.
   const mission = currentMission(missions);
   if (mission) {
@@ -96,7 +117,11 @@ export function drawHUD(ctx, state, viewW, viewH) {
     ctx.fillStyle = 'rgba(8,12,20,0.88)'; ctx.beginPath(); ctx.roundRect(120, viewH - 128, viewW - 240, 96, 12); ctx.fill();
     ctx.strokeStyle = '#ffd94d'; ctx.lineWidth = 2; ctx.stroke();
     ctx.fillStyle = '#ffd94d'; ctx.font = 'bold 20px system-ui'; ctx.textAlign = 'left'; ctx.fillText(line.speaker, 146, viewH - 94);
-    ctx.fillStyle = '#ffffff'; ctx.font = '20px system-ui'; ctx.fillText(line.text, 146, viewH - 62);
+    ctx.fillStyle = '#ffffff'; ctx.font = '20px system-ui';
+    // Wrap dialog to two lines instead of letting long lines run off the box.
+    const words = line.text.split(' '); const wrapped = [''];
+    for (const w of words) { const trial = wrapped[wrapped.length - 1] ? wrapped[wrapped.length - 1] + ' ' + w : w; if (ctx.measureText(trial).width > viewW - 420 && wrapped.length < 2) wrapped.push(w); else wrapped[wrapped.length - 1] = trial; }
+    wrapped.forEach((part, i) => ctx.fillText(part, 146, viewH - 62 + i * 24));
     ctx.fillStyle = '#9fb4cc'; ctx.font = '15px system-ui'; ctx.fillText('ENTER ▸', viewW - 230, viewH - 44);
   }
   // Context hint near the player when a car can be stolen.

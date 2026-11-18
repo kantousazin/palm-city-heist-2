@@ -26,6 +26,7 @@ export function createParkedCars(seed) {
 }
 
 export function updateVehicleDriving(vehicle, input, dt) {
+  vehicle.prevSpeed = vehicle.speed;
   const accel = 340, maxSpeed = 430, maxReverse = -150;
   if (input.forward) vehicle.speed += accel * dt * (vehicle.speed < 0 ? 2.2 : 1);
   else if (input.back) vehicle.speed -= accel * dt * (vehicle.speed > 0 ? 2.4 : 1);
@@ -54,10 +55,18 @@ export function vehicleCorners(vehicle) {
   return [[hl, hw], [hl, -hw], [-hl, hw], [-hl, -hw]].map(([lx, ly]) => ({ x: vehicle.x + lx * c - ly * s, y: vehicle.y + lx * s + ly * c }));
 }
 
-export function drawVehicle(ctx, vehicle, camera, viewW, viewH) {
+export function drawVehicle(ctx, vehicle, camera, viewW, viewH, night = false) {
   const sx = vehicle.x - camera.x + viewW / 2, sy = vehicle.y - camera.y + viewH / 2;
   if (sx < -70 || sx > viewW + 70 || sy < -70 || sy > viewH + 70) return;
   ctx.save(); ctx.translate(sx, sy); ctx.rotate(vehicle.angle);
+  if (night) {
+    // Headlight cones: two soft wedges ahead of the car (light, not decals).
+    const grad = ctx.createLinearGradient(20, 0, 86, 0);
+    grad.addColorStop(0, 'rgba(255,240,190,0.30)'); grad.addColorStop(1, 'rgba(255,240,190,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.moveTo(20, -9); ctx.lineTo(86, -22); ctx.lineTo(86, 2); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(20, 9); ctx.lineTo(86, 22); ctx.lineTo(86, -2); ctx.closePath(); ctx.fill();
+  }
   ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(-CAR_LENGTH / 2 + 3, -CAR_WIDTH / 2 + 5, CAR_LENGTH, CAR_WIDTH);
   ctx.fillStyle = vehicle.color;
   ctx.beginPath(); ctx.roundRect(-CAR_LENGTH / 2, -CAR_WIDTH / 2, CAR_LENGTH, CAR_WIDTH, 7); ctx.fill();
@@ -75,7 +84,17 @@ export function drawVehicle(ctx, vehicle, camera, viewW, viewH) {
   ctx.fillStyle = '#16181d';
   const wy = CAR_WIDTH / 2 - 2;
   ctx.fillRect(-CAR_LENGTH / 2 + 5, -wy - 3, 11, 6); ctx.fillRect(-CAR_LENGTH / 2 + 5, wy - 3, 11, 6);
-  ctx.fillRect(CAR_LENGTH / 2 - 16, -wy - 3, 11, 6); ctx.fillRect(CAR_LENGTH / 2 - 16, wy - 3, 11, 6);
+  // Front wheels turn with the steering input (the car telegraphs its turn).
+  for (const side of [-1, 1]) {
+    ctx.save(); ctx.translate(CAR_LENGTH / 2 - 11, side * wy); ctx.rotate((vehicle.steerVisual || 0) * 0.42);
+    ctx.fillRect(-5.5, -3, 11, 6); ctx.restore();
+  }
+  // Brake lights flare when the car is shedding speed; tail lights glow at night.
+  const braking = vehicle.prevSpeed !== undefined && vehicle.speed < vehicle.prevSpeed - 12;
+  ctx.fillStyle = braking ? '#ff2a1e' : night ? '#c22418' : '#7e1d16';
+  ctx.fillRect(-CAR_LENGTH / 2 - 1, -CAR_WIDTH / 2 + 3, 4, 6); ctx.fillRect(-CAR_LENGTH / 2 - 1, CAR_WIDTH / 2 - 9, 4, 6);
+  ctx.fillStyle = night ? '#fff3b0' : '#e8e4c8';
+  ctx.fillRect(CAR_LENGTH / 2 - 3, -CAR_WIDTH / 2 + 3, 4, 6); ctx.fillRect(CAR_LENGTH / 2 - 3, CAR_WIDTH / 2 - 9, 4, 6);
   ctx.restore();
 }
 
